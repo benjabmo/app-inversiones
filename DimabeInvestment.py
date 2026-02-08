@@ -19,8 +19,8 @@ from scipy.optimize import minimize
 import io
 import plotly.graph_objects as go
 import os
-
-
+import gspread 
+import time
 
 # 1. Configuración de la página
 st.set_page_config(layout='wide', page_title='Dimabe Investments')
@@ -536,190 +536,222 @@ with tab3:
                     st.divider()
 
 # =====================================
-# PESTAÑA 4: MI BILLETERA (CON ACCESOS DIRECTOS)
+# PESTAÑA 4: BILLETERA PRO (CON BORRADO Y FECHAS)
 # =====================================
-
 with tab4:
-    st.header("💰 Gestión de Patrimonio")
-    
-    # --- 0. ACCESOS DIRECTOS (TUS PLATAFORMAS) ---
-    # Aquí agregamos los botones para ir directo a comprar
-    st.caption("Accesos rápidos para operar:")
+    st.header("☁️ Gestión de Patrimonio (Base de Datos Real)")
     
     col_link1, col_link2 = st.columns(2)
-    with col_link1:
-        # Botón para ir a Racional
-        st.link_button("📱 Ir a Racional (Acciones)", "https://app.racional.cl", use_container_width=True)
-    with col_link2:
-        # Botón para ir a Buda
-        st.link_button("⚡ Ir a Buda.com (Cripto)", "https://www.buda.com/chile", use_container_width=True)
-        
+    col_link1.link_button("📱 Racional", "https://app.racional.cl", use_container_width=True)
+    col_link2.link_button("⚡ Buda.com", "https://www.buda.com/chile", use_container_width=True)
     st.divider()
 
-    # --- 1. CONFIGURACIÓN E INICIALIZACIÓN ---
-    ARCHIVO_PORTAFOLIO = 'mi_portafolio.csv'
-
-    if 'mi_portafolio' not in st.session_state:
-        st.session_state['mi_portafolio'] = []
-        if os.path.exists(ARCHIVO_PORTAFOLIO):
-            try:
-                df_guardado = pd.read_csv(ARCHIVO_PORTAFOLIO)
-                st.session_state['mi_portafolio'] = df_guardado.to_dict('records')
-            except:
-                pass
-
-    def guardar_en_disco():
-        df_a_guardar = pd.DataFrame(st.session_state['mi_portafolio'])
-        df_a_guardar.to_csv(ARCHIVO_PORTAFOLIO, index=False)
-
-    # --- 2. CALLBACK PARA GUARDAR SIN ERRORES ---
-    def agregar_inversion():
-        ticker = st.session_state.input_ticker
-        fecha = str(st.session_state.input_fecha)
-        cant = st.session_state.input_cantidad
-        costo = st.session_state.input_costo
-
-        if cant > 0 and costo > 0:
-            st.session_state['mi_portafolio'].append({
-                "Fecha": fecha,
-                "Ticker": ticker,
-                "Cantidad": cant,
-                "Inversion_USD": costo
-            })
-            guardar_en_disco()
-            
-            # Resetear inputs
-            st.session_state.input_cantidad = 0.0
-            st.session_state.input_costo = 0.0
-            
-            st.toast(f"✅ Compra de {ticker} registrada!", icon="💰")
-        else:
-            st.toast("⚠️ Faltan datos (Cantidad o Costo)", icon="❌")
-
-    # --- 3. FORMULARIO ---
-    with st.expander("➕ Registrar Nueva Inversión (Manual)", expanded=True):
-        
-        mis_acciones = [
-            "ASML", "MSFT", "GOOGL", "AMZN", 
-            "NVDA", "AMD", "MELI", "TSLA",   
-            "BTC-USD", "ETH-USD", "MSTR",    
-            "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN"
-        ]
-        
-        c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
-        
-        with c1:
-            st.selectbox("Activo", mis_acciones, key="input_ticker")
-        with c2:
-            st.date_input("Fecha", datetime.now(), key="input_fecha")
-        with c3:
-            st.number_input("Cantidad", min_value=0.0, format="%.4f", step=0.01, key="input_cantidad")
-        with c4:
-            st.number_input("Gastado (USD)", min_value=0.0, format="%.2f", step=10.0, key="input_costo")
-            
-        st.write("")
-        st.button("Guardar Inversión", on_click=agregar_inversion, use_container_width=True, type="primary")
-
-    st.divider()
-
-    # --- 4. VISUALIZACIÓN ---
-    if len(st.session_state['mi_portafolio']) > 0:
-        
+    # 1. CONEXIÓN A GOOGLE SHEETS
+    def conectar_google_sheets():
         try:
-            usd_obj = yf.Ticker("CLP=X").history(period="1d")
-            dolar_clp = float(usd_obj['Close'].iloc[-1])
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            gc = gspread.service_account_from_dict(creds_dict)
+            sh = gc.open("Base_Datos_Dimabe") 
+            return sh.sheet1
+        except Exception as e:
+            st.error(f"⚠️ Error de conexión: {e}")
+            return None
+
+    sheet = conectar_google_sheets()
+    df_nube = pd.DataFrame()
+
+    # Función de limpieza de números (Mantiene tu corrección de comas/puntos)
+    def limpiar_numero_estricto(valor):
+        texto = str(valor).strip()
+        if not texto: return 0.0
+        # Reemplazamos coma por punto para Python
+        texto = texto.replace(',', '.')
+        try:
+            return float(texto)
         except:
-            dolar_clp = 850.0
+            return 0.0
 
-        datos_tabla = []
-        total_invertido_clp = 0
-        total_actual_clp = 0
-        
-        copia_portafolio = st.session_state['mi_portafolio'].copy()
-        copia_portafolio.reverse()
-        
-        if len(copia_portafolio) > 3: bar = st.progress(0)
-        total_items = len(copia_portafolio)
-
-        for i, item in enumerate(copia_portafolio):
-            if len(copia_portafolio) > 3: bar.progress((i + 1) / total_items)
+    # 2. CARGA DE DATOS (MÉTODO POSICIONAL - INFALIBLE)
+    if sheet:
+        try:
+            # Bajamos todo como texto
+            data_raw = sheet.get_all_values()
             
-            symbol = item["Ticker"]
-            qty = item["Cantidad"]
-            costo_usd = item["Inversion_USD"]
-            fecha_reg = item.get("Fecha", "-")
-            
-            valor_actual_clp = 0.0
-            costo_clp = costo_usd * dolar_clp if ".SN" not in symbol else costo_usd
-            
-            df_live = get_single_ticker_data(symbol)
-            if df_live is not None and not df_live.empty:
-                try:
-                    precio_hoy = float(df_live['Close'].iloc[-1])
-                    if ".SN" in symbol:
-                        valor_actual_clp = qty * precio_hoy
-                    else:
-                        valor_actual_clp = qty * precio_hoy * dolar_clp
-                except:
-                    pass
-            
-            ganancia = valor_actual_clp - costo_clp
-            rentabilidad = (ganancia / costo_clp * 100) if costo_clp > 0 else 0
-
-            total_actual_clp += valor_actual_clp
-            total_invertido_clp += costo_clp
-            
-            datos_tabla.append({
-                "Fecha": fecha_reg,
-                "Activo": symbol.replace(".SN", ""),
-                "Tenencia": qty,
-                "Inversión (CLP)": costo_clp,
-                "Valor Hoy (CLP)": valor_actual_clp,
-                "Ganancia": ganancia,
-                "Rentabilidad %": rentabilidad
-            })
-        
-        if len(copia_portafolio) > 3: bar.empty()
-
-        if datos_tabla:
-            df_fin = pd.DataFrame(datos_tabla)
-            
-            # Métricas
-            rent_total = total_actual_clp - total_invertido_clp
-            pct_total = (rent_total / total_invertido_clp * 100) if total_invertido_clp > 0 else 0
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Patrimonio Total", f"${total_actual_clp:,.0f}")
-            m2.metric("Costo Histórico", f"${total_invertido_clp:,.0f}")
-            m3.metric("Rentabilidad Total", f"${rent_total:,.0f}", f"{pct_total:.2f}%")
-            
-            st.divider()
-
-            # Gráficos
-            c_graf, c_tab = st.columns([1, 2])
-            with c_graf:
-                if total_actual_clp > 0:
-                    fig = px.pie(df_fin, values='Valor Hoy (CLP)', names='Activo', hole=0.5)
-                    fig.update_layout(showlegend=False, margin=dict(t=30, b=0, l=0, r=0))
-                    fig.update_traces(textposition='inside', textinfo='percent+label')
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            with c_tab:
-                df_show = df_fin.copy()
-                for col in ['Inversión (CLP)', 'Valor Hoy (CLP)', 'Ganancia']:
-                    df_show[col] = df_show[col].apply(lambda x: f"${x:,.0f}")
-                df_show['Rentabilidad %'] = df_show['Rentabilidad %'].apply(lambda x: f"{x:+.2f}%")
+            if len(data_raw) > 1: 
+                # Asumimos el orden estricto de columnas:
+                # Col 0: Fecha | Col 1: Ticker | Col 2: Cantidad | Col 3: Inversion_USD
+                headers = ["Fecha", "Ticker", "Cantidad", "Inversion_USD"]
+                rows = data_raw[1:] # Saltamos la fila de títulos del Excel
                 
-                st.dataframe(df_show, use_container_width=True, hide_index=True)
+                # Creamos el DataFrame forzando nuestros nombres de columnas
+                # (Así no importa si en el Excel dice "fecha" o "Date")
+                df_nube = pd.DataFrame(rows)
+                
+                # Aseguramos que tenga 4 columnas, si tiene menos, rellenamos
+                if df_nube.shape[1] >= 4:
+                    df_nube = df_nube.iloc[:, :4] # Nos quedamos con las primeras 4
+                    df_nube.columns = headers
+                    
+                    # Limpieza numérica
+                    df_nube['Cantidad'] = df_nube['Cantidad'].apply(limpiar_numero_estricto)
+                    df_nube['Inversion_USD'] = df_nube['Inversion_USD'].apply(limpiar_numero_estricto)
+                else:
+                    df_nube = pd.DataFrame() # Estructura incorrecta
+            else:
+                df_nube = pd.DataFrame()
+                
+        except Exception as e:
+            st.warning(f"Esperando datos... ({e})")
+
+    # 3. SECCIÓN DE GESTIÓN (AGREGAR Y BORRAR)
+    c_add, c_del = st.columns([2, 1])
+    
+    # --- COLUMNA IZQUIERDA: AGREGAR ---
+    with c_add:
+        with st.expander("➕ Registrar Inversión", expanded=True):
+            with st.form("entry_form", clear_on_submit=True):
+                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN"]
+                
+                k1, k2 = st.columns(2)
+                with k1: 
+                    tick = st.selectbox("Activo", mis_acciones)
+                    cant = st.number_input("Cantidad", min_value=0.0, format="%.6f", step=0.0001)
+                with k2: 
+                    fech = st.date_input("Fecha", datetime.now())
+                    cost = st.number_input("Total Pagado (USD)", min_value=0.0, format="%.2f", step=10.0)
+                
+                st.write("")
+                if st.form_submit_button("Guardar en Nube", type="primary", use_container_width=True):
+                    if sheet and cant > 0 and cost > 0:
+                        try:
+                            # Guardamos con formato string seguro
+                            row = [str(fech), tick, str(cant).replace('.', ','), str(cost).replace('.', ',')]
+                            sheet.append_row(row)
+                            st.toast("✅ Guardado")
+                            import time
+                            time.sleep(1)
+                            st.rerun()
+                        except: st.error("Error guardando")
+
+    # --- COLUMNA DERECHA: BORRAR ---
+    with c_del:
+        with st.expander("🗑️ Borrar", expanded=True):
+            if not df_nube.empty:
+                # Creamos una lista para elegir qué borrar
+                # Formato: "Fila X: Ticker (Fecha)"
+                opciones_borrar = [f"{i}: {row['Ticker']} ({row['Fecha']})" for i, row in df_nube.iterrows()]
+                seleccion = st.selectbox("Elegir:", options=opciones_borrar)
+                
+                if st.button("Eliminar Fila", type="secondary", use_container_width=True):
+                    if seleccion:
+                        # Extraemos el índice original (El número antes de los dos puntos)
+                        indice_df = int(seleccion.split(':')[0])
+                        # En Google Sheets, la fila es indice_df + 2 (porque empieza en 1 y la fila 1 es header)
+                        fila_sheet = indice_df + 2
+                        
+                        try:
+                            sheet.delete_rows(fila_sheet)
+                            st.toast("🗑️ Eliminado")
+                            import time
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            else:
+                st.info("Nada que borrar")
+
+    st.divider()
+
+    # 4. VISUALIZACIÓN (TABLA Y GRÁFICO)
+    if not df_nube.empty:
+        st.subheader("📊 Tu Portafolio en la Nube")
+        
+        # --- CÁLCULOS ---
+        try:
+            usd_val = yf.Ticker("CLP=X").history(period="1d")['Close'].iloc[-1]
+        except: usd_val = 850.0
+
+        datos_calc = []
+        total_inv_clp = 0 # Lo que gastaste (convertido a CLP aprox)
+        total_val_clp = 0 # Lo que tienes hoy
+        
+        for index, row in df_nube.iterrows():
+            sym = row['Ticker']
+            qty = row['Cantidad']
+            cost_usd = row['Inversion_USD'] # Aquí debe venir el 11.52
             
-            st.write("")
-            with st.expander("🗑️ Borrar Historial"):
-                if st.button("Eliminar Todos los Datos"):
-                    st.session_state['mi_portafolio'] = []
-                    guardar_en_disco()
-                    st.rerun()
+            # 1. Costo histórico estimado en CLP
+            cost_clp = cost_usd * usd_val if ".SN" not in sym else cost_usd
+            
+            # 2. Valor actual en vivo
+            val_now = 0
+            try:
+                live = yf.Ticker(sym).history(period="1d")
+                if not live.empty:
+                    p = live['Close'].iloc[-1]
+                    if ".SN" in sym:
+                        val_now = qty * p
+                    else:
+                        val_now = qty * p * usd_val
+            except: pass
+            
+            total_inv_clp += cost_clp
+            total_val_clp += val_now
+            
+            ganancia = val_now - cost_clp
+            rent = (ganancia / cost_clp * 100) if cost_clp > 0 else 0
+            
+            datos_calc.append({
+                "Fecha": row['Fecha'], # Ahora sí debe salir
+                "Activo": sym.replace(".SN", ""), 
+                "Tenencia": qty,
+                "Costo Orig (USD)": cost_usd, # ¡Nuevo! Para ver cuánto pusiste
+                "Valor Hoy (CLP)": val_now,
+                "Ganancia": ganancia, 
+                "Rent %": rent
+            })
+            
+        # --- MÉTRICAS ---
+        rent_tot = total_val_clp - total_inv_clp
+        pct_tot = (rent_tot/total_inv_clp*100) if total_inv_clp > 0 else 0
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Patrimonio Actual", f"${total_val_clp:,.0f}")
+        m2.metric("Inversión Total (Est.)", f"${total_inv_clp:,.0f}") # ¡Aquí ya no debería decir 0!
+        m3.metric("Rentabilidad", f"${rent_tot:,.0f}", f"{pct_tot:.2f}%")
+        
+        st.divider()
+
+        # --- GRÁFICOS Y TABLA DETALLADA ---
+        df_fin = pd.DataFrame(datos_calc)
+        
+        c_graf, c_tab = st.columns([1, 2])
+        
+        with c_graf:
+            st.caption("Composición")
+            if total_val_clp > 0:
+                fig = px.pie(df_fin, values='Valor Hoy (CLP)', names='Activo', hole=0.5)
+                fig.update_layout(showlegend=False, margin=dict(t=20, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with c_tab:
+            st.caption("Detalle")
+            df_show = df_fin.copy()
+            # Formato de dinero
+            df_show['Valor Hoy (CLP)'] = df_show['Valor Hoy (CLP)'].apply(lambda x: f"${x:,.0f}")
+            df_show['Ganancia'] = df_show['Ganancia'].apply(lambda x: f"${x:,.0f}")
+            df_show['Costo Orig (USD)'] = df_show['Costo Orig (USD)'].apply(lambda x: f"${x:,.2f}") # Formato Dólar
+            df_show['Rent %'] = df_show['Rent %'].apply(lambda x: f"{x:+.2f}%")
+            
+            # Mostramos la tabla bonita
+            st.dataframe(
+                df_show[['Fecha', 'Activo', 'Tenencia', 'Costo Orig (USD)', 'Valor Hoy (CLP)', 'Ganancia', 'Rent %']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+            
     else:
-        st.info("👋 Agrega tu primera inversión arriba.")
+        st.info("✅ Conexión exitosa. La hoja está vacía.")
 
 # =====================================
 # PESTAÑA 5: NOTICIAS (MÉTODO RSS BLINDADO)
