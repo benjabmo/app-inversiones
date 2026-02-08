@@ -610,7 +610,7 @@ with tab4:
     with c_add:
         with st.expander("➕ Registrar Inversión", expanded=True):
             with st.form("entry_form", clear_on_submit=True):
-                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN"]
+                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN", 'CFMITNIPSA.SN']
                 
                 k1, k2 = st.columns(2)
                 with k1: 
