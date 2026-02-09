@@ -1,5 +1,5 @@
 import ssl 
-# --- EL PARCHE MÁGICO ---
+# --- PARCHE ---
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -33,13 +33,13 @@ def tickers_sp500():
     """Descargar la lista de S&P 500 desde Wikipedia simulando ser un navegador"""
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        # ESTA ES LA CLAVE: Le decimos que somos un navegador Mozilla
+        # Le decimos que somos un navegador Mozilla
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'}
         
-        # 1. Hacemos la petición con los headers
+        # 1. Hacer petición con los headers
         respuesta = requests.get(url, headers=headers)
         
-        # 2. Leemos la tabla desde el texto de la respuesta
+        # 2. Leer tabla desde el texto de la respuesta
         html = pd.read_html(respuesta.text)
         
         df = html[0]
@@ -54,10 +54,10 @@ def tickers_sp500():
 def descargar_y_convertir_a_clp(start_date):
     """
     Descarga TODO el S&P 500 completo + Chile + Cripto y convierte a CLP.
-    Versión 'Full Market': Puede tardar un poco más en cargar, pero tiene toda la data.
+    Versión 'Full Market': Se demora en cargar, pero tiene toda la data.
     """
-    # A. Definimos el Universo
-    # LISTA IPSA EXPANDIDA (Principales acciones de Chile)
+    # A. Definir el Universo
+    # LISTA IPSA (Principales acciones de Chile)
     tickers_chile = [
         'SQM-B.SN', 'CHILE.SN', 'BSANTANDER.SN', 'COPEC.SN', 'CENCOSUD.SN', 'FALABELLA.SN',
         'CMPC.SN', 'ENELAM.SN', 'VAPORES.SN', 'CAP.SN', 'ANDINA-B.SN', 'CCU.SN',
@@ -66,11 +66,10 @@ def descargar_y_convertir_a_clp(start_date):
         'QUINENCO.SN', 'RIPLEY.SN', 'SMU.SN', 'SONDA.SN', 'ENELCHILE.SN'
     ]
     
-    # 1. Obtenemos la lista COMPLETA de Wikipedia (500+ acciones)
+    # 1. Obtener lista COMPLETA de Wikipedia (500+ acciones)
     tickers_usa = tickers_sp500()
     
-    # 2. Aseguramos que estén los "Gigantes" y el Benchmark (SPY)
-    # (A veces Wikipedia tarda en actualizar o usa nombres raros, así que aseguramos estos)
+    # 2. Asegurar que estéb las EMPRESAS MÁS GRANDES y el Benchmark (SPY)
     indispensables = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'SPY', 'ASML', 'MELI', 'MSTR', 
                       'AMD', 'BTC-USD', 'ETH-USD']
     for t in indispensables:
@@ -79,7 +78,7 @@ def descargar_y_convertir_a_clp(start_date):
     
     tickers_crypto = ['BTC-USD', 'ETH-USD']
     
-    # Juntamos todo (Usamos set para eliminar duplicados si los hubiera)
+    # Juntar todo
     todos_tickers = list(set(tickers_chile + tickers_usa + tickers_crypto + ['CLP=X']))
     
     # B. Descarga Masiva
@@ -96,10 +95,10 @@ def descargar_y_convertir_a_clp(start_date):
     data_clp = data.copy()
     
     # D. Conversión Masiva a CLP
-    # Optimizamos para que no sea lento con 500 acciones
+    # Optimizar para que no sea lento con 500 acciones
     cols_a_convertir = [col for col in data.columns if not col.endswith('.SN') and col != 'CLP=X']
     
-    # Vectorización (Más rápido que un loop for normal)
+    # Vectorización 
     data_clp[cols_a_convertir] = data[cols_a_convertir].multiply(dolar, axis=0)
     
     # Limpieza final
@@ -107,7 +106,6 @@ def descargar_y_convertir_a_clp(start_date):
     data_clp = data_clp.dropna(axis=1, how='all') # Borra las que fallaron
     
     # Filtro de Calidad: Borrar acciones que tengan menos del 90% de datos
-    # (Para evitar acciones nuevas que rompan los gráficos)
     limit = len(data_clp) * 0.9
     data_clp = data_clp.dropna(axis=1, thresh=limit)
 
@@ -141,10 +139,10 @@ precio_dolar_hoy = df_dolar.iloc[-1]
 st.sidebar.metric('Dólar Observado (Hoy)', f'${precio_dolar_hoy:,.0f} CLP')
 
 # 4. Estructura de Pestañas
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(['Top de Mercado', 'Análisis Técnico', 'Inversiones', 'Mi Billetera 💰', 'Noticias', 'Backtesting'])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(['Top de Mercado', 'Análisis Técnico', 'Inversiones', 'Mi Billetera 💰', 'Noticias'])
 
 # =====================================
-# PESTAÑA 1: MONITOR DE MERCADO (CON GUÍA)
+# PESTAÑA 1: MONITOR DE MERCADO 
 # =====================================
 
 with tab1:
@@ -183,8 +181,8 @@ with tab1:
     
     st.write("")
 
-    # --- 2. LA GUÍA TEÓRICA (TU "TORPEDO") ---
-    # Usamos st.expander para que no ocupe espacio si no lo necesitas
+    # --- 2. GUÍA TEÓRICA ---
+    ## == Usar st.expander para no ocupar tanto espacio ==
     with st.expander("ℹ️ ¿Qué significa esto para mi bolsillo? (Guía Rápida)"):
         st.markdown("""
         Esta barra te dice el "clima" financiero. Úsala antes de comprar o vender:
@@ -256,7 +254,7 @@ with tab1:
             st.warning("No hay datos de mercado disponibles ahora.")
 
 # =====================================
-# PESTAÑA 2: 
+# PESTAÑA 2: ANÁLISIS TÉCNICO
 # =====================================
     
 with tab2:
@@ -334,15 +332,15 @@ with tab2:
         st.plotly_chart(fig_rsi, use_container_width=True)
 
 # =====================================
-# PESTAÑA 3: ESTRATEGIA (MODO FRANCOTIRADOR 🎯)
+# PESTAÑA 3: ESTRATEGIA DE INVERSIÓN
 # =====================================
 
 with tab3:
-    st.header("Tablero de Control Pro")
+    st.header("Seguimiento de Acciones Principales")
     st.caption("Estrategia Combinada: Busca la confluencia de RSI + Medias Móviles.")
 
     # --- 0. SIMBOLOGÍA ACTUALIZADA ---
-    with st.expander("ℹ️ Guía de Señales (Tu Estrategia Personalizada)", expanded=False):
+    with st.expander("ℹ️ Guía de Señales", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown("### 🦄 Compra Perfecta")
@@ -363,22 +361,20 @@ with tab3:
 
     st.divider()
 
-    # 1. FUNCIÓN CEREBRO (LÓGICA MEJORADA)
+    # 1. FUNCIÓN CEREBRO
     def obtener_diagnostico(df):
         try:
-            # Obtenemos datos
+            # Obtener datos
             rsi = df['RSI'].iloc[-1]
             ma7 = df['MA7'].iloc[-1]
             ma25 = df['MA25'].iloc[-1]
             ma99 = df['MA99'].iloc[-1]
             
-            # --- TUS REGLAS DE ORO ---
-            
-            # 1. LA SEÑAL MAESTRA (COMBINACIÓN)
-            # Buscamos: RSI "sano" (no carisimo) Y Cruce Alcista confirmado
+            # 1. COMBINACIONES
+            # Estamos buscando: RSI "sano" (no carisimo) Y Cruce Alcista confirmado
             # Usamos RSI < 45 para dar margen a que ocurra el cruce
             if ma7 > ma25 and rsi < 45:
-                return "🦄 COMPRA PERFECTA (GOLDEN)", f"Cruce Alcista + RSI Sano ({rsi:.0f})", "#00C853", "🌟"
+                return "🏅 COMPRA PERFECTA (GOLDEN)", f"Cruce Alcista + RSI Sano ({rsi:.0f})", "#00C853", "🌟"
             
             # 2. SEÑAL DE VENTA (ESTRICTA)
             # Si se rompe la tendencia de corto plazo, vendemos.
@@ -402,7 +398,7 @@ with tab3:
         except:
             return "ERROR", "Datos insuficientes", "#808080", "⚪"
 
-    # 2. CARGA DE DATOS (Mismo de antes)
+    # 2. CARGA DE DATOS
     @st.cache_data(ttl=900)
     def get_single_ticker_data(symbol):
         try:
@@ -434,10 +430,7 @@ with tab3:
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Precio'))
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA7'], line=dict(color='orange', width=1), name='MA7 (Rápida)'))
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA25'], line=dict(color='blue', width=1), name='MA25 (Media)'))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA99'], line=dict(color='purple', width=2, dash='dot'), name='MA99 (Larga)'))
-        
-        # Agregamos líneas de RSI visuales (Opcional pero útil)
-        # Nota: En un gráfico de velas no se ve el RSI, así que dejamos solo las medias
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA99'], line=dict(color='purple', width=2, dash='dot'), name='MA99 (Larga)'))        
         
         fig.update_layout(title=dict(text=title), height=350, margin=dict(l=0, r=0, t=30, b=0), xaxis_rangeslider_visible=False, template='plotly_white', legend=dict(orientation='h', y=1.1, x=0))
         return fig
@@ -445,7 +438,7 @@ with tab3:
     # ==========================================
     # VISUALIZACIÓN
     # ==========================================
-    st.subheader('1. Estrategia Cripto & High Beta')
+    st.subheader('1. Estrategia Cripto')
     
     tab_btc, tab_eth = st.tabs(['₿ Bitcoin', 'Ξ Ethereum'])
 
@@ -456,7 +449,7 @@ with tab3:
             senal, explicacion, color_senal, icono = obtener_diagnostico(df_btc)
             last_price = df_btc['Close'].iloc[-1]
 
-            # Tarjeta de Señal Grande
+            # Señal Grande
             st.markdown(f"""
             <div style="background-color: {color_senal}15; padding: 20px; border-radius: 12px; border: 2px solid {color_senal}; margin-bottom: 25px; text-align: center;">
                 <h2 style="color: {color_senal}; margin:0;">{icono} {senal}</h2>
@@ -500,8 +493,8 @@ with tab3:
     # PORTAFOLIO GENERAL
     # ==========================================
     grupos = {
-        "🛡️ Núcleo": ["MSFT", "GOOGL", "AMZN", "ASML", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN", 'LTM.SN', 'CFMITNIPSA.SN'],
-        "🚀 Crecimiento": ["NVDA", "AMD", "MELI", "SQM-B.SN", "TSLA"]
+        "MERCADO GLOBAL 🌎": ["MSFT", "GOOGL", "AMZN", "ASML", 'NVDA', 'AMD', 'MELI', 'TSLA'],
+        "MERCADO CHILENO 🇨🇱": ["SQM-B.SN", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN", 'LTM.SN', 'CFMITNIPSA.SN', 'VAPORES.SN']
     }
 
     col_izq, col_der = st.columns(2)
@@ -536,7 +529,7 @@ with tab3:
                     st.divider()
 
 # =====================================
-# PESTAÑA 4: BILLETERA PRO (CON BORRADO Y FECHAS)
+# PESTAÑA 4: BILLETERA PRO
 # =====================================
 with tab4:
     st.header("☁️ Gestión de Patrimonio (Base de Datos Real)")
@@ -560,7 +553,7 @@ with tab4:
     sheet = conectar_google_sheets()
     df_nube = pd.DataFrame()
 
-    # Función de limpieza de números (Mantiene tu corrección de comas/puntos)
+    # Función de limpieza de números 
     def limpiar_numero_estricto(valor):
         texto = str(valor).strip()
         if not texto: return 0.0
@@ -571,25 +564,24 @@ with tab4:
         except:
             return 0.0
 
-    # 2. CARGA DE DATOS (MÉTODO POSICIONAL - INFALIBLE)
+    # 2. CARGA DE DATOS 
     if sheet:
         try:
             # Bajamos todo como texto
             data_raw = sheet.get_all_values()
             
             if len(data_raw) > 1: 
-                # Asumimos el orden estricto de columnas:
+                # Asumir orden estricto de columnas:
                 # Col 0: Fecha | Col 1: Ticker | Col 2: Cantidad | Col 3: Inversion_USD
                 headers = ["Fecha", "Ticker", "Cantidad", "Inversion_USD"]
-                rows = data_raw[1:] # Saltamos la fila de títulos del Excel
+                rows = data_raw[1:] # Se salta la fila de titulos puesta en el Excel
                 
-                # Creamos el DataFrame forzando nuestros nombres de columnas
-                # (Así no importa si en el Excel dice "fecha" o "Date")
+                # Se crea el DataFrame forzando los nombres puestos en las columnas
                 df_nube = pd.DataFrame(rows)
                 
-                # Aseguramos que tenga 4 columnas, si tiene menos, rellenamos
+                # Asegurar que se tenga 4 columnas, si tiene menos, se rellena
                 if df_nube.shape[1] >= 4:
-                    df_nube = df_nube.iloc[:, :4] # Nos quedamos con las primeras 4
+                    df_nube = df_nube.iloc[:, :4] # Se queda con las primeras 4
                     df_nube.columns = headers
                     
                     # Limpieza numérica
@@ -603,14 +595,15 @@ with tab4:
         except Exception as e:
             st.warning(f"Esperando datos... ({e})")
 
-    # 3. SECCIÓN DE GESTIÓN (AGREGAR Y BORRAR)
+    # 3. SECCIÓN DE GESTIÓN 
     c_add, c_del = st.columns([2, 1])
     
     # --- COLUMNA IZQUIERDA: AGREGAR ---
     with c_add:
         with st.expander("➕ Registrar Inversión", expanded=True):
             with st.form("entry_form", clear_on_submit=True):
-                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN", 'CFMITNIPSA.SN', 'LTM.SN']
+                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", 
+                                "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN", 'CFMITNIPSA.SN', 'LTM.SN', 'VAPORES.SN']
                 
                 k1, k2 = st.columns(2)
                 with k1: 
@@ -624,7 +617,7 @@ with tab4:
                 if st.form_submit_button("Guardar en Nube", type="primary", use_container_width=True):
                     if sheet and cant > 0 and cost > 0:
                         try:
-                            # Guardamos con formato string seguro
+                            # Guardar con formato string seguro
                             row = [str(fech), tick, str(cant).replace('.', ','), str(cost).replace('.', ',')]
                             sheet.append_row(row)
                             st.toast("✅ Guardado")
@@ -637,7 +630,7 @@ with tab4:
     with c_del:
         with st.expander("🗑️ Borrar", expanded=True):
             if not df_nube.empty:
-                # Creamos una lista para elegir qué borrar
+                # Se crea una lista para elegir que acción borrar
                 # Formato: "Fila X: Ticker (Fecha)"
                 opciones_borrar = [f"{i}: {row['Ticker']} ({row['Fecha']})" for i, row in df_nube.iterrows()]
                 seleccion = st.selectbox("Elegir:", options=opciones_borrar)
@@ -664,7 +657,7 @@ with tab4:
 
     # 4. VISUALIZACIÓN (TABLA Y GRÁFICO)
     if not df_nube.empty:
-        st.subheader("📊 Tu Portafolio en la Nube")
+        st.subheader("📊 Portafolio en la Nube")
         
         # --- CÁLCULOS ---
         try:
@@ -672,13 +665,13 @@ with tab4:
         except: usd_val = 850.0
 
         datos_calc = []
-        total_inv_clp = 0 # Lo que gastaste (convertido a CLP aprox)
-        total_val_clp = 0 # Lo que tienes hoy
+        total_inv_clp = 0 # Lo que gaste (convertido a CLP aprox)
+        total_val_clp = 0 # Lo que tengo hoy
         
         for index, row in df_nube.iterrows():
             sym = row['Ticker']
             qty = row['Cantidad']
-            cost_usd = row['Inversion_USD'] # Aquí debe venir el 11.52
+            cost_usd = row['Inversion_USD'] 
             
             # 1. Costo histórico estimado en CLP
             cost_clp = cost_usd * usd_val if ".SN" not in sym else cost_usd
@@ -702,10 +695,10 @@ with tab4:
             rent = (ganancia / cost_clp * 100) if cost_clp > 0 else 0
             
             datos_calc.append({
-                "Fecha": row['Fecha'], # Ahora sí debe salir
+                "Fecha": row['Fecha'], 
                 "Activo": sym.replace(".SN", ""), 
                 "Tenencia": qty,
-                "Costo Orig (USD)": cost_usd, # ¡Nuevo! Para ver cuánto pusiste
+                "Costo Orig (USD)": cost_usd, 
                 "Valor Hoy (CLP)": val_now,
                 "Ganancia": ganancia, 
                 "Rent %": rent
@@ -717,7 +710,7 @@ with tab4:
         
         m1, m2, m3 = st.columns(3)
         m1.metric("Patrimonio Actual", f"${total_val_clp:,.0f}")
-        m2.metric("Inversión Total (Est.)", f"${total_inv_clp:,.0f}") # ¡Aquí ya no debería decir 0!
+        m2.metric("Inversión Total (Est.)", f"${total_inv_clp:,.0f}") 
         m3.metric("Rentabilidad", f"${rent_tot:,.0f}", f"{pct_tot:.2f}%")
         
         st.divider()
@@ -740,10 +733,9 @@ with tab4:
             # Formato de dinero
             df_show['Valor Hoy (CLP)'] = df_show['Valor Hoy (CLP)'].apply(lambda x: f"${x:,.0f}")
             df_show['Ganancia'] = df_show['Ganancia'].apply(lambda x: f"${x:,.0f}")
-            df_show['Costo Orig (USD)'] = df_show['Costo Orig (USD)'].apply(lambda x: f"${x:,.2f}") # Formato Dólar
+            df_show['Costo Orig (USD)'] = df_show['Costo Orig (USD)'].apply(lambda x: f"${x:,.2f}") 
             df_show['Rent %'] = df_show['Rent %'].apply(lambda x: f"{x:+.2f}%")
             
-            # Mostramos la tabla bonita
             st.dataframe(
                 df_show[['Fecha', 'Activo', 'Tenencia', 'Costo Orig (USD)', 'Valor Hoy (CLP)', 'Ganancia', 'Rent %']], 
                 use_container_width=True, 
@@ -754,7 +746,7 @@ with tab4:
         st.info("✅ Conexión exitosa. La hoja está vacía.")
 
 # =====================================
-# PESTAÑA 5: NOTICIAS (MÉTODO RSS BLINDADO)
+# PESTAÑA 5: NOTICIAS 
 # =====================================
 import xml.etree.ElementTree as ET # Biblioteca estándar para leer RSS
 
@@ -763,7 +755,6 @@ with tab5:
     st.caption("Titulares en tiempo real vía RSS (Conexión Directa).")
 
     # 1. Función para leer RSS directamente (Sin usar yfinance)
-    # Esto es mucho más robusto porque el formato RSS casi nunca cambia.
     def obtener_noticias_rss(ticker):
         # URL oficial del Feed de Yahoo Finance
         url = f"https://finance.yahoo.com/rss/headline?s={ticker}"
@@ -784,7 +775,7 @@ with tab5:
                     link = item.find('link').text
                     pub_date = item.find('pubDate').text
                     
-                    # Limpiamos la fecha (le quitamos la hora para que sea corta)
+                    # Limpieza de fechas
                     if pub_date:
                         pub_date = pub_date[:16] 
                         
