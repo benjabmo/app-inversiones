@@ -500,7 +500,7 @@ with tab3:
     # PORTAFOLIO GENERAL
     # ==========================================
     grupos = {
-        "🛡️ Núcleo": ["MSFT", "GOOGL", "AMZN", "ASML", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN"],
+        "🛡️ Núcleo": ["MSFT", "GOOGL", "AMZN", "ASML", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN", 'LTM.SN', 'CFMITNIPSA.SN'],
         "🚀 Crecimiento": ["NVDA", "AMD", "MELI", "SQM-B.SN", "TSLA"]
     }
 
@@ -610,7 +610,7 @@ with tab4:
     with c_add:
         with st.expander("➕ Registrar Inversión", expanded=True):
             with st.form("entry_form", clear_on_submit=True):
-                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN", 'CFMITNIPSA.SN']
+                mis_acciones = ["ASML", "MSFT", "GOOGL", "AMZN", "NVDA", "AMD", "MELI", "TSLA", "BTC-USD", "ETH-USD", "MSTR", "CHILE.SN", "SQM-B.SN", "QUINENCO.SN", "CENCOSUD.SN", 'CFMITNIPSA.SN', 'LTM.SN']
                 
                 k1, k2 = st.columns(2)
                 with k1: 
