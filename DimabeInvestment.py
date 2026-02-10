@@ -387,11 +387,15 @@ with tab3:
             df['Open'] = df_raw['Open'].resample('W').first()
             df['High'] = df_raw['High'].resample('W').max()
             df['Low'] = df_raw['Low'].resample('W').min()
+            df['Volume'] = df_raw['Volume'].resample('W').sum()
             
             # Medias Institucionales
             df['MA21'] = df['Close'].ewm(span=21, adjust=False).mean()
             df['MA50'] = df['Close'].rolling(window=50).mean()
             df['MA200'] = df['Close'].rolling(window=200).mean()
+
+            # Promedio Volumen 
+            df['Vol_Avg'] = df['Volume'].rolling(window=8).mean()
             
             # RSI WILDER 
             delta = df['Close'].diff()
@@ -403,7 +407,40 @@ with tab3:
             return df.dropna(subset=['RSI', 'MA21'])
         except: return None
 
-    # 3. GRÁFICO TÉCNICO 
+    # 3. EXPLICACIÓN TEÓRICA
+    def generar_teoria_inversión(df):
+        row = df.iloc[-1]
+        pre = row['Close']
+        rsi = row['RSI']
+        m21 = row['MA21']
+        m50 = row['MA50']
+        vol = row['Volume']
+        v_avg = row['Vol_Avg'] 
+
+        # Lógica Volumen
+        vol_alto = vol > (v_avg * 1.5)
+
+        # Escenario 1: Acumulación
+        if rsi < 65 and pre > m50 and vol_alto:
+            return '⚡️ FUERZA INSTITUCIONAL: El volumen es inusualmente alto, pero el RSI no está agotado. Esto indica que las instituciones están comprando agresivamente.'
+        
+        # Escenario 2: Agotamiento
+        elif rsi > 75:
+            txt = '⚠️ PELIGRO DE CORRECCIÓN: RSI en sobrecompra extrema.'
+            if vol_alto: txt += 'El volumen alto aquí sugiere que habrá un posible fin de subida de precio.'
+            return txt
+        
+        # Escenario 3: Soporte / Compra perfecta
+        elif pre > m50 and m21 > m50 and rsi < 45:
+            return '🏅 COMPRA TÉCNICA: Tendencia alcista sana con precio en oferta según el RSI. Buen riesgo/beneficio.'
+        
+        # Escenario 4: Capitulación
+        elif pre < m50 and vol_alto and rsi < 35:
+            return '🛑 CAPITULACIÓN: Venta masiva por pánico. El volumen alto sugiere que el activo está cerca de tocar fondo.'
+        
+        return '⏸️ NEUTRAL: Sin anomalías de volumen o RSI. Seguir tendencia de medias.'
+
+    # 4. GRÁFICO TÉCNICO 
     def plot_candle_strategy(df, symbol, title):
         if df is None or df.empty: return go.Figure()
         df_plot = df.tail(100)
@@ -487,16 +524,21 @@ with tab3:
                         k1.markdown(f"**{t.replace('.SN','')}**")
                         k2.markdown(f"<div style='background-color:{c_hex}; color:white; padding:2px; border-radius:4px; font-size:12px; text-align:center;'>{icon} {s_txt.split(' ')[0]}</div>", unsafe_allow_html=True)
                         
-                        r_p, r_r = st.columns(2)
+                        r_p, r_r, r_v = st.columns(3)
                         if es_chile:
                             r_p.write(f'Precio: {simbolo}{p_val:,.0f} {moneda}')
                         else:
                             r_p.write(f'Precio: {simbolo}{p_val:,.2f} {moneda}')
                         
                         r_r.write(f'RSI: **{rsi_v:.1f}**')
+
+                        vol_m = data['Volume'].iloc[-1] / 1_000_000
+                        r_v.write(f'Vol: **{vol_m:,.1f}M**')
                         
                         with st.expander("Ver Análisis"):
                             st.write(f"**Diagnóstico:** {s_txt}")
+                            teoria = generar_teoria_inversión(data)
+                            st.info(teoria)
                             st.caption(f"**Por qué:** {r_txt}")
                             st.plotly_chart(plot_candle_strategy(data, t, t), use_container_width=True)
                     st.divider()
