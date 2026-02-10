@@ -446,11 +446,11 @@ with tab3:
         df_eth = get_single_ticker_data('ETH-USD')
         if df_eth is not None:
             diag, expl, col_s, ico = obtener_diagnostico(df_eth)
-            p_clp = df_eth['Close'].iloc[-1] * df_dolar.iloc[-1]
+            p_clp = df_eth['Close'].iloc[-1]
             st.markdown(f"<div style='background-color:{col_s}15; padding:20px; border-radius:12px; border:2px solid {col_s}; text-align:center;'><h2 style='color:{col_s}; margin:0;'>{ico} {diag}</h2><p><b>{expl}</b></p></div>", unsafe_allow_html=True)
             c1, c2 = st.columns([1, 2])
             with c1:
-                st.metric("Ethereum (CLP)", f"${p_clp:,.0f}")
+                st.metric("Ethereum", f"${p_clp:,.0f} USD")
                 st.metric("RSI Semanal", f"{df_eth['RSI'].iloc[-1]:.1f}")
             with c2:
                 st.plotly_chart(plot_candle_strategy(df_eth, 'ETH', 'ETH Semanal'), use_container_width=True)
