@@ -112,15 +112,14 @@ def descargar_y_convertir_a_clp(start_date):
     return data_clp, dolar
 
 def calcular_rsi(data, window=14):
-    '''Calcula el Relative Strength Index (RSI) para una serie de datos.'''
+    """Cálculo del RSI usando el suavizado de Wilder"""
     delta = data.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    gain = (delta.where(delta > 0, 0)).ewm(alpha=1/window, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/window, adjust=False).mean()
 
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
-
 
 # 3. Sidebar y Carga
 st.sidebar.header('Panel de Control')
@@ -260,232 +259,201 @@ with tab1:
 with tab2:
     st.header('Análisis de Precios')
 
-    # 1. Selectores
-    col_sel1, col_sel2, col_sel3 = st.columns(3)
+ # 1. Selectores Pro
+    col_s1, col_s2, col_s3 = st.columns([2,1,1])
+    with col_s1:
+        activo = st.selectbox('Activo a analizar:', df_precios_clp.columns.tolist(), index=0)
+    with col_s2:
+        temporalidad = st.radio('Temporalidad:', ['Diario', 'Semanal'], horizontal=True)
+    with col_s3:
+        tipo_rsi = st.caption("RSI: Estándar Wilder 14")
 
-    with col_sel1:
-        ## Lista de activos disponibles en la data descargada
-        lista_activos = df_precios_clp.columns.tolist()
-        activo_elegido = st.selectbox('Selecciona Activo:', lista_activos, 
-                                      index=lista_activos.index('SQM-B.SN') if 'SQM-B.SN' in lista_activos else 0)
+    # 2. Procesamiento de datos
+    df_t = df_precios_clp[activo].to_frame(name='Close')
+    if temporalidad == 'Semanal':
+        df_t = df_t.resample('W').last()
+
+    # Indicadores Institucionales
+    df_t['EMA21'] = df_t['Close'].ewm(span=21, adjust=False).mean()
+    df_t['SMA50'] = df_t['Close'].rolling(window=50).mean()
+    df_t['SMA200'] = df_t['Close'].rolling(window=200).mean()
+    df_t['RSI'] = calcular_rsi(df_t['Close'])
+
+    # 3. Métricas
+    m1, m2, m3, m4 = st.columns(4)
+    precio_act = df_t['Close'].iloc[-1]
+    rsi_act = df_t['RSI'].iloc[-1]
     
-    with col_sel2:
-        sma_corta = st.number_input('Media Movil Corta (Días)', value=20, min_value=5)
+    m1.metric("Precio Actual", f"${precio_act:,.0f}")
+    m2.metric("RSI (14)", f"{rsi_act:.1f}", delta="SOBRECOMPRA" if rsi_act > 70 else "SOBREVENTA" if rsi_act < 30 else "NEUTRO")
     
-    with col_sel3:
-        sma_larga = st.number_input('Media Movil Larga (Días)', value=50, min_value=10)
-    
-    # 2. Preparación de datos para el activo elegido
-    if activo_elegido:
-        ## Extraemos la serie de precios del activo
-        serie_precios = df_precios_clp[activo_elegido]
-
-        ## Calcular indicadores
-        sma_s = serie_precios.rolling(window=sma_corta).mean()
-        sma_l = serie_precios.rolling(window=sma_larga).mean()
-        rsi = calcular_rsi(serie_precios)
-
-        ## Precio actual y variación
-        precio_actual = serie_precios.iloc[-1]
-        precio_ayer = serie_precios.iloc[-2]
-        delta = precio_actual - precio_ayer
-        delta_pct = delta / precio_ayer
-
-        ## Métricas grandes
-        c1, c2, c3 = st.columns(3)
-        c1.metric('Precio Actual (CLP)', f'${precio_actual:,.0f}',
-                  f'{delta_pct:.2%}')
-        c2.metric('RSI (14)', f'{rsi.iloc[-1]:.1f}', delta_color='off')
-
-        ## Interpretación rápida del RSI
-        valor_rsi = rsi.iloc[-1]
-        estado_rsi = 'Neutro'
-        if valor_rsi > 70: estado_rsi = 'Sobrecomprado (Posible Caída)'
-        elif valor_rsi < 30: estado_rsi = 'Sobrevendido (Oportunidad)'
-        c3.write(f'**Señal RSI:** {estado_rsi}')
-
-        ## Gráfico principal (Precio + SMA)
-        fig_price = px.line(serie_precios, title=f'Evolución de Precio: {activo_elegido}')
-        fig_price.update_traces(line=dict(color='#1f77b4', width=3), name='Precio')
-
-        ## Agregar las SMAs
-        fig_price.add_scatter(x=serie_precios.index, y=sma_s, mode='lines', 
-                              name=f'SMA {sma_corta}', line=dict(color='#ff7f0e', width=2))
-        fig_price.add_scatter(x=serie_precios.index, y=sma_l, mode='lines', 
-                              name=f'SMA {sma_larga}', line=dict(color='#2ca02c', width=2))
+    # Señal de Medias
+    if precio_act > df_t['SMA50'].iloc[-1]:
+        m3.write("✅ **Tendencia:** Alcista (>SMA50)")
+    else:
+        m3.write("❌ **Tendencia:** Bajista (<SMA50)")
         
-        fig_price.update_layout(yaxis_title='Precio en CLP', xaxis_title='Fecha')
-        
-        st.plotly_chart(fig_price, use_container_width=True)
+    # 4. Gráfico de Precio (Candelas o Línea)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_t.index, y=df_t['Close'], name='Precio', line=dict(color='#17BECF', width=2)))
+    fig.add_trace(go.Scatter(x=df_t.index, y=df_t['EMA21'], name='EMA 21 (Rápida)', line=dict(color='orange', width=1)))
+    fig.add_trace(go.Scatter(x=df_t.index, y=df_t['SMA50'], name='SMA 50 (Media)', line=dict(color='magenta', width=1)))
+    fig.add_trace(go.Scatter(x=df_t.index, y=df_t['SMA200'], name='SMA 200 (Lenta)', line=dict(color='green', width=1.5)))
+    
+    fig.update_layout(title=f'Gráfico {temporalidad}: {activo}', height=500, template='plotly_dark')
+    st.plotly_chart(fig, use_container_width=True)
 
-        ## Gráfico secundario (RSI)
-        st.markdown('#### Índice de Fuerza Relativa (RSI)')
-        fig_rsi = px.line(rsi, title='Momentum (RSI)')
-
-        ## Zonas Clave (70 y 30)
-        fig_rsi.add_hline(y=70, line_dash='dash', line_color='red', 
-                          annotation_text='Sobrecompra')
-        fig_rsi.add_hline(y=30, line_dash='dash', line_color='green', 
-                          annotation_text='Sobreventa')
-        fig_rsi.update_yaxes(range=[0, 100])
-
-        st.plotly_chart(fig_rsi, use_container_width=True)
+    # 5. Gráfico RSI
+    fig_rsi = px.line(df_t, y='RSI', title='Momentum RSI (Wilder)')
+    fig_rsi.add_hline(y=70, line_dash='dash', line_color='red')
+    fig_rsi.add_hline(y=30, line_dash='dash', line_color='green')
+    fig_rsi.update_layout(height=250, template='plotly_dark', yaxis_range=[0,100])
+    st.plotly_chart(fig_rsi, use_container_width=True)
 
 # =====================================
-# PESTAÑA 3: ESTRATEGIA DE INVERSIÓN
+# PESTAÑA 3: ESTRATEGIA (CON RSI INTEGRADO Y SIN ERRORES)
 # =====================================
 
 with tab3:
     st.header("Seguimiento de Acciones Principales")
-    st.caption("Estrategia Combinada: Busca la confluencia de RSI + Medias Móviles.")
+    st.caption("Estrategia Semanal Sincronizada: RSI Wilder + Medias Institucionales (21/50/200).")
 
     # --- 0. SIMBOLOGÍA ACTUALIZADA ---
     with st.expander("ℹ️ Guía de Señales", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown("### 🦄 Compra Perfecta")
-            st.success("RSI Bajo + Cruce Alcista")
-            st.caption("El 'Santo Grial'. El precio estaba barato y acaba de confirmar que empieza a subir.")
+            st.markdown("### 🏅 Compra Perfecta")
+            st.success("RSI Sano + Sobre MA200")
+            st.caption("El activo está barato pero la tendencia de largo plazo sigue siendo alcista.")
         with c2:
             st.markdown("### 💎 Rebote")
             st.info("Solo RSI < 30")
-            st.caption("El activo está muy barato (sobrevendido). Es buena compra, pero cuidado si sigue cayendo.")
+            st.caption("Sobrevendido. Oportunidad de rebote técnico, pero con mayor riesgo.")
         with c3:
             st.markdown("### 🚀 Tendencia")
-            st.markdown(":blue[MA7 > MA99]")
-            st.caption("Tendencia alcista fuerte a largo plazo. Ideal para mantener.")
+            st.markdown(":blue[MA21 > MA50]")
+            st.caption("Confirmación de impulso alcista en el mediano plazo.")
         with c4:
+            st.markdown('### ⚠️ TOMA GANANCIAS')
+            st.warning('Solo RSI > 75')
+            st.caption('Sobrecomprado. Vender las acciones, porque se puede venir una bajada. TENER OJO CON EL VOLUMEN')
+        with c5:
             st.markdown("### 🛑 Venta")
             st.error("Cruce Bajista")
-            st.caption("La media rápida (MA7) cayó bajo la media (MA25). Salir para proteger capital.")
+            st.caption("La media rápida (MA21) cayó bajo la media (MA50). Salida de seguridad.")
 
     st.divider()
 
-    # 1. FUNCIÓN CEREBRO
+    # 1. FUNCIÓN CEREBRO (Sincronizada con TradingView)
     def obtener_diagnostico(df):
         try:
-            # Obtener datos
+            if len(df) < 20: return "ESPERAR", "Faltan datos", "#757575", "⏳"
+            
             rsi = df['RSI'].iloc[-1]
-            ma7 = df['MA7'].iloc[-1]
-            ma25 = df['MA25'].iloc[-1]
-            ma99 = df['MA99'].iloc[-1]
+            ma21 = df['MA21'].iloc[-1]
+            ma50 = df['MA50'].iloc[-1]
+            ma200 = df['MA200'].iloc[-1] if len(df) >= 200 else df['MA50'].iloc[-1]
+            precio = df['Close'].iloc[-1]
             
-            # 1. COMBINACIONES
-            # Estamos buscando: RSI "sano" (no carisimo) Y Cruce Alcista confirmado
-            # Usamos RSI < 45 para dar margen a que ocurra el cruce
-            if ma7 > ma25 and rsi < 45:
-                return "🏅 COMPRA PERFECTA (GOLDEN)", f"Cruce Alcista + RSI Sano ({rsi:.0f})", "#00C853", "🌟"
-            
-            # 2. SEÑAL DE VENTA (ESTRICTA)
-            # Si se rompe la tendencia de corto plazo, vendemos.
-            elif ma7 < ma25:
-                return "🛑 VENTA / SALIDA", "Cruce Bajista (MA7 cayó bajo MA25)", "#D50000", "🔻"
-
-            # 3. COMPRA POR SUELO (SOLO RSI)
+            if ma21 > ma50 and rsi < 45 and precio > ma200:
+                return "🏅 COMPRA PERFECTA", f"Cruce Alcista Semanal + RSI Sano ({rsi:.1f})", "#00C853", "🌟"
+            elif ma21 < ma50:
+                return "🛑 VENTA / SALIDA", f"Cruce Bajista (MA21 < MA50). RSI: {rsi:.1f}", "#D50000", "🔻"
             elif rsi < 30:
-                return "💎 OPORTUNIDAD DE REBOTE", f"Precio muy barato (RSI {rsi:.0f})", "#0091EA", "💎"
-
-            # 4. TOMA DE GANANCIAS
-            elif rsi > 70:
-                return "⚠️ TOMA GANANCIAS", f"Precio muy caro (RSI {rsi:.0f})", "#FF6D00", "⚠️"
-
-            # 5. TENDENCIA LARGA (SI YA COMPRASTE, MANTÉN)
-            elif ma7 > ma99:
-                return "🚀 MANTENER TENDENCIA", "Tendencia alcista firme", "#AA00FF", "🔭"
-
+                return "💎 REBOTE TÉCNICO", f"Sobreventa Extrema (RSI {rsi:.1f})", "#0091EA", "💎"
+            elif rsi > 75:
+                return "⚠️ TOMA GANANCIAS", f"Sobrecompra (RSI {rsi:.1f})", "#FF6D00", "⚠️"
+            elif precio > ma200:
+                return "🚀 MANTENER", "Tendencia alcista firme sobre MA200", "#AA00FF", "🔭"
             else:
-                return "⏸️ NEUTRO / ESPERAR", "Sin configuración clara", "#757575", "⏳"
+                return "⏸️ NEUTRO", "Sin señal clara", "#757575", "⏳"
         except:
-            return "ERROR", "Datos insuficientes", "#808080", "⚪"
+            return "ERROR", "Fallo en cálculos", "#808080", "⚪"
 
-    # 2. CARGA DE DATOS
+    # 2. CARGA DE DATOS (Mejora: Remuestreo Semanal para evitar errores de índice)
     @st.cache_data(ttl=900)
     def get_single_ticker_data(symbol):
         try:
             ticker = yf.Ticker(symbol)
-            df = ticker.history(period='2y', auto_adjust=False)
-            if df is None or df.empty: return None
-            df.columns = [c.capitalize() for c in df.columns]
-            if 'Close' not in df.columns and 'Adj close' in df.columns: df['Close'] = df['Adj close']
-            if 'Close' not in df.columns: return None
-            df.index = df.index.tz_localize(None)
+            # Traemos 5 años para asegurar tener datos de la MA200
+            df_raw = ticker.history(period='5y', auto_adjust=False)
+            if df_raw.empty: return None
             
-            df['MA7'] = df['Close'].rolling(window=7).mean()
-            df['MA25'] = df['Close'].rolling(window=25).mean()
-            df['MA99'] = df['Close'].rolling(window=99).mean()
+            df_raw.columns = [c.capitalize() for c in df_raw.columns]
+            df_raw.index = df_raw.index.tz_localize(None)
             
+            # CONVERSIÓN A SEMANAL
+            df = df_raw['Close'].resample('W').last().to_frame()
+            df['Open'] = df_raw['Open'].resample('W').first()
+            df['High'] = df_raw['High'].resample('W').max()
+            df['Low'] = df_raw['Low'].resample('W').min()
+            
+            # Medias Institucionales
+            df['MA21'] = df['Close'].ewm(span=21, adjust=False).mean()
+            df['MA50'] = df['Close'].rolling(window=50).mean()
+            df['MA200'] = df['Close'].rolling(window=200).mean()
+            
+            # RSI WILDER 
             delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+            loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
             rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
-            return df.dropna()
+            
+            return df.dropna(subset=['RSI', 'MA21'])
         except: return None
 
-    # 3. GRÁFICO TÉCNICO
+    # 3. GRÁFICO TÉCNICO 
     def plot_candle_strategy(df, symbol, title):
         if df is None or df.empty: return go.Figure()
-        df_plot = df.tail(150)
+        df_plot = df.tail(100)
         fig = go.Figure()
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Precio'))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA7'], line=dict(color='orange', width=1), name='MA7 (Rápida)'))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA25'], line=dict(color='blue', width=1), name='MA25 (Media)'))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA99'], line=dict(color='purple', width=2, dash='dot'), name='MA99 (Larga)'))        
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA21'], line=dict(color='orange', width=1.5), name='EMA 21'))
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA50'], line=dict(color='blue', width=1.5), name='SMA 50'))
+        if len(df) >= 200:
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA200'], line=dict(color='purple', width=2, dash='dot'), name='SMA 200'))
         
-        fig.update_layout(title=dict(text=title), height=350, margin=dict(l=0, r=0, t=30, b=0), xaxis_rangeslider_visible=False, template='plotly_white', legend=dict(orientation='h', y=1.1, x=0))
+        fig.update_layout(height=400, template='plotly_dark', xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=30,b=0))
         return fig
 
     # ==========================================
     # VISUALIZACIÓN
     # ==========================================
     st.subheader('1. Estrategia Cripto')
-    
-    tab_btc, tab_eth = st.tabs(['₿ Bitcoin', 'Ξ Ethereum'])
+    t1, t2 = st.tabs(['₿ Bitcoin', 'Ξ Ethereum'])
 
-    # --- BITCOIN ---
-    with tab_btc:
+    with t1:
         df_btc = get_single_ticker_data('BTC-USD')
         if df_btc is not None:
-            senal, explicacion, color_senal, icono = obtener_diagnostico(df_btc)
-            last_price = df_btc['Close'].iloc[-1]
-
-            # Señal Grande
-            st.markdown(f"""
-            <div style="background-color: {color_senal}15; padding: 20px; border-radius: 12px; border: 2px solid {color_senal}; margin-bottom: 25px; text-align: center;">
-                <h2 style="color: {color_senal}; margin:0;">{icono} {senal}</h2>
-                <p style="margin-top:5px; font-size: 18px; color: #333;"><b>{explicacion}</b></p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            c1, c2 = st.columns([1, 3])
+            diag, expl, col_s, ico = obtener_diagnostico(df_btc)
+            # Sincronizamos con el Dólar de la App para CLP
+            p_clp = df_btc['Close'].iloc[-1]
+            st.markdown(f"<div style='background-color:{col_s}15; padding:20px; border-radius:12px; border:2px solid {col_s}; text-align:center;'><h2 style='color:{col_s}; margin:0;'>{ico} {diag}</h2><p><b>{expl}</b></p></div>", unsafe_allow_html=True)
+            c1, c2 = st.columns([1, 2])
             with c1:
-                st.metric("Bitcoin", f"${last_price:,.0f}")
-                # MSTR Check
+                st.metric("Bitcoin", f"${p_clp:,.0f} USD")
+                st.metric("RSI Semanal", f"{df_btc['RSI'].iloc[-1]:.1f}")
+                # MicroStrategy Check
                 df_mstr = get_single_ticker_data('MSTR')
-                if df_mstr is not None and not df_mstr.empty:
+                if df_mstr is not None:
                     s_mstr, _, c_mstr, i_mstr = obtener_diagnostico(df_mstr)
-                    st.metric("MicroStrategy", f"${df_mstr['Close'].iloc[-1]:,.2f}")
-                    st.caption(f"{i_mstr} {s_mstr}")
-                else:
-                    st.caption("MSTR: Cargando...")
-            
+                    st.caption(f"MSTR: {i_mstr} {s_mstr}")
             with c2:
-                st.plotly_chart(plot_candle_strategy(df_btc, 'BTC-USD', 'Gráfico Bitcoin'), use_container_width=True)
+                st.plotly_chart(plot_candle_strategy(df_btc, 'BTC', 'BTC Semanal'), use_container_width=True)
 
-    # --- ETHEREUM ---
-    with tab_eth:
+    with t2:
         df_eth = get_single_ticker_data('ETH-USD')
         if df_eth is not None:
-            senal, explicacion, color_senal, icono = obtener_diagnostico(df_eth)
-            
-            st.markdown(f"""
-            <div style="background-color: {color_senal}15; padding: 20px; border-radius: 12px; border: 2px solid {color_senal}; margin-bottom: 25px; text-align: center;">
-                <h2 style="color: {color_senal}; margin:0;">{icono} {senal}</h2>
-                <p style="margin-top:5px; font-size: 18px; color: #333;"><b>{explicacion}</b></p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.plotly_chart(plot_candle_strategy(df_eth, 'ETH-USD', 'Gráfico Ethereum'), use_container_width=True)
+            diag, expl, col_s, ico = obtener_diagnostico(df_eth)
+            p_clp = df_eth['Close'].iloc[-1] * df_dolar.iloc[-1]
+            st.markdown(f"<div style='background-color:{col_s}15; padding:20px; border-radius:12px; border:2px solid {col_s}; text-align:center;'><h2 style='color:{col_s}; margin:0;'>{ico} {diag}</h2><p><b>{expl}</b></p></div>", unsafe_allow_html=True)
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.metric("Ethereum (CLP)", f"${p_clp:,.0f}")
+                st.metric("RSI Semanal", f"{df_eth['RSI'].iloc[-1]:.1f}")
+            with c2:
+                st.plotly_chart(plot_candle_strategy(df_eth, 'ETH', 'ETH Semanal'), use_container_width=True)
 
     st.markdown("---")
 
@@ -494,38 +462,43 @@ with tab3:
     # ==========================================
     grupos = {
         "MERCADO GLOBAL 🌎": ["MSFT", "GOOGL", "AMZN", "ASML", 'NVDA', 'AMD', 'MELI', 'TSLA'],
-        "MERCADO CHILENO 🇨🇱": ["SQM-B.SN", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN", 'LTM.SN', 'CFMITNIPSA.SN', 'VAPORES.SN']
+        "MERCADO CHILENO 🇨🇱": ["SQM-B.SN", "CHILE.SN", "QUINENCO.SN", "CENCOSUD.SN", 'LTM.SN', 'VAPORES.SN']
     }
 
     col_izq, col_der = st.columns(2)
-
-    for i, (titulo, tickers) in enumerate(grupos.items()):
+    for i, (titulo, tks) in enumerate(grupos.items()):
         columna = col_izq if i == 0 else col_der
         with columna:
             st.subheader(titulo)
-            for ticker in tickers:
-                df_t = get_single_ticker_data(ticker)
-                if df_t is not None:
-                    precio = df_t['Close'].iloc[-1]
-                    nombre = ticker.replace(".SN", " 🇨🇱")
-                    senal_txt, razon_txt, color_hex, icon = obtener_diagnostico(df_t)
+            for t in tks:
+                data = get_single_ticker_data(t)
+                if data is not None and not data.empty:
+                    # Determinación de Moneda y Formato
+                    es_chile = t.endswith('.SN')
+                    moneda = 'CLP' if es_chile else 'USD'
+                    simbolo = '$'
+                    # Convertir a CLP si es USA para que coincida con Pestaña 2
+                    p_val = data['Close'].iloc[-1]
+                    rsi_v = data['RSI'].iloc[-1]
+                    s_txt, r_txt, c_hex, icon = obtener_diagnostico(data)
                     
                     with st.container():
                         k1, k2 = st.columns([1.5, 1])
-                        k1.markdown(f"**{nombre}**")
-                        # Badge de señal
-                        k2.markdown(f"""
-                        <div style="background-color:{color_hex}; color:white; padding:2px 8px; border-radius:4px; font-size:12px; text-align:center;">
-                        {icon} {senal_txt.split(' ')[0]}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        k1.markdown(f"**{t.replace('.SN','')}**")
+                        k2.markdown(f"<div style='background-color:{c_hex}; color:white; padding:2px; border-radius:4px; font-size:12px; text-align:center;'>{icon} {s_txt.split(' ')[0]}</div>", unsafe_allow_html=True)
                         
-                        st.write(f"${precio:,.0f}")
+                        r_p, r_r = st.columns(2)
+                        if es_chile:
+                            r_p.write(f'Precio: {simbolo}{p_val:,.0f} {moneda}')
+                        else:
+                            r_p.write(f'Precio: {simbolo}{p_val:,.2f} {moneda}')
                         
-                        with st.expander(f"Ver Análisis"):
-                            st.write(f"**Diagnóstico:** {senal_txt}")
-                            st.caption(f"**Por qué:** {razon_txt}")
-                            st.plotly_chart(plot_candle_strategy(df_t, nombre, ticker), use_container_width=True)
+                        r_r.write(f'RSI: **{rsi_v:.1f}**')
+                        
+                        with st.expander("Ver Análisis"):
+                            st.write(f"**Diagnóstico:** {s_txt}")
+                            st.caption(f"**Por qué:** {r_txt}")
+                            st.plotly_chart(plot_candle_strategy(data, t, t), use_container_width=True)
                     st.divider()
 
 # =====================================
